@@ -1,29 +1,23 @@
 from __future__ import annotations
 import os
+import yaml
+from warnings import warn
+import logging
+
+from goblet_gcp_client.client import get_default_location, get_default_project
 
 from goblet.backends.cloudfunctionv1 import CloudFunctionV1
 from goblet.backends.cloudfunctionv2 import CloudFunctionV2
 from goblet.backends.cloudrun import CloudRun
-from goblet.client import VersionedClients, get_default_location, get_default_project
+
 from goblet.infrastructures.redis import Redis
 from goblet.infrastructures.vpcconnector import VPCConnector
-from goblet.resources.eventarc import EventArc
-from goblet.resources.pubsub import PubSub
-from goblet.resources.routes import ApiGateway
-from goblet.resources.scheduler import Scheduler
-from goblet.resources.storage import Storage
-from goblet.resources.http import HTTP
-from goblet.resources.jobs import Jobs
-from goblet.infrastructures.alerts import Alerts
-
-from googleapiclient.errors import HttpError
-
-from warnings import warn
-
-import logging
+from goblet.infrastructures.cloudtask import CloudTaskQueue
+from goblet.infrastructures.pubsub import PubSubTopic
+from goblet.infrastructures.alerts import PubSubDLQCondition
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
+log.setLevel(logging.getLevelName(os.getenv("GOBLET_LOG_LEVEL", "INFO")))
 
 EVENT_TYPES = [
     "all",
@@ -34,6 +28,8 @@ EVENT_TYPES = [
     "route",
     "eventarc",
     "job",
+    "bqremotefunction",
+    "cloudtasktarget",
 ]
 
 SUPPORTED_BACKENDS = {
@@ -42,10 +38,15 @@ SUPPORTED_BACKENDS = {
     "cloudrun": CloudRun,
 }
 
-SUPPORTED_INFRASTRUCTURES = {"redis": Redis, "vpcconnector": VPCConnector}
+SUPPORTED_INFRASTRUCTURES = {
+    "redis": Redis,
+    "vpcconnector": VPCConnector,
+    "cloudtaskqueue": CloudTaskQueue,
+    "pubsub_topic": PubSubTopic,
+}
 
 
-class DecoratorAPI:
+class Goblet_Decorators:
     """Decorator endpoints that are called by the user. Returns _create_registration_function which will trigger the corresponding
     registration function in the Register_Handlers class. For example _create_registration_function with type route will call
     _register_route"""
@@ -76,7 +77,8 @@ class DecoratorAPI:
 
     def middleware(self, event_type="all"):
         """Middleware functions that are called before events for preprocessing.
-        This is deprecated and will be removed in the future. Use before_request instead"""
+        This is deprecated and will be removed in the future. Use before_request instead
+        """
         warn(
             "Middleware method is deprecated. Use before_request instead",
             DeprecationWarning,
@@ -110,11 +112,118 @@ class DecoratorAPI:
             },
         )
 
-    def topic(self, topic, **kwargs):
+    def bqremotefunction(
+        self, dataset_id, vectorize_func=False, max_batching_rows=0, **kwargs
+    ):
+        """
+        BigQuery remote function trigger
+        dataset_id: Where the function will be registered
+        vectorize_func: If True, ensure every argument of your function is a list, and returns a list
+        max_batching_rows: Max number of rows in each batch sent to the remote service. 0 for dynamic
+        """
+        return self._create_registration_function(
+            handler_type="bqremotefunction",
+            registration_kwargs={
+                "dataset_id": dataset_id,
+                "vectorize_func": vectorize_func,
+                "max_batching_rows": max_batching_rows,
+                "kwargs": kwargs,
+            },
+        )
+
+    def pubsub_subscription(self, topic, **kwargs):
         """Pubsub topic trigger"""
+        dlq = kwargs.pop("dlq", False)
+        dlq_topic_config = kwargs.pop("dlq_topic_config", {})
+        dlq_alert = kwargs.pop("dlq_alert", False)
+        dlq_alert_config = kwargs.pop("dlq_alert_config", {})
+        if dlq:
+            log.info(f"DLQ enabled use of subscription will be forced to topic {topic}")
+            kwargs["use_subscription"] = True
+            dlq_topic_name = (
+                f"{topic}-dlq"
+                if "name" not in dlq_topic_config
+                else dlq_topic_config.pop("name")
+            )
+            dlq_pull_subscription_config = dlq_topic_config.pop(
+                "pull_subscription_config", {}
+            )
+            dlq_pull_subscription_name = (
+                f"{dlq_topic_name}-pull-subscription"
+                if "name" not in dlq_pull_subscription_config
+                else dlq_pull_subscription_config.pop("name")
+            )
+            # Create DLQ topic
+            self._register_infrastructure(
+                handler_type="pubsub_topic",
+                kwargs={
+                    "name": dlq_topic_name,
+                    "kwargs": {
+                        "config": dlq_topic_config,
+                        "dlq": True,
+                        "dlq_pull_subscription": {
+                            "name": dlq_pull_subscription_name,
+                            "config": dlq_pull_subscription_config,
+                        },
+                    },
+                },
+            )
+            dlq_policy = {
+                "deadLetterPolicy": {
+                    "deadLetterTopic": self.infrastructure["pubsub_topic"].resources[
+                        dlq_topic_name
+                    ]["name"],
+                }
+            }
+            if "config" in kwargs:
+                kwargs["config"].update(dlq_policy)
+            else:
+                kwargs["config"] = dlq_policy
+
+            if dlq_alert:
+                sub_name = f"{self.function_name}-{topic}"
+                log.info(f"DLQ alert enabled for subscription {sub_name}")
+                dlq_alert_name = (
+                    f"{sub_name}-dlq-alert"
+                    if "name" not in dlq_alert_config
+                    else dlq_alert_config.pop("name")
+                )
+                dlq_alert_trigger_value = (
+                    0
+                    if "trigger_value" not in dlq_alert_config
+                    else dlq_alert_config.pop("trigger_value")
+                )
+                dlq_alert_config["conditions"] = [
+                    PubSubDLQCondition(
+                        "pubsub",
+                        subscription_id=sub_name,
+                        value=dlq_alert_trigger_value,
+                    )
+                ]
+                self._register_infrastructure(
+                    handler_type="alerts",
+                    kwargs={"name": dlq_alert_name, "kwargs": dlq_alert_config},
+                )
+
         return self._create_registration_function(
             handler_type="pubsub",
             registration_kwargs={"topic": topic, "kwargs": kwargs},
+        )
+
+    def topic(self, topic, **kwargs):
+        warn(
+            "This method is deprecated, use @app.pubsub_subscription",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.pubsub_subscription(topic, **kwargs)
+
+    def cloudtasktarget(self, name, **kwargs):
+        """CloudTask trigger"""
+        kwargs["name"] = name
+        return self._create_registration_function(
+            handler_type="cloudtasktarget",
+            registration_kwargs={"name": name, "kwargs": kwargs},
         )
 
     def storage(self, bucket, event_type, name=None):
@@ -169,15 +278,58 @@ class DecoratorAPI:
                 },
             )
         return self._create_registration_function(
-            handler_type="job",
+            handler_type="jobs",
             registration_kwargs={"name": name, "task_id": task_id, "kwargs": kwargs},
+        )
+
+    def apigateway(self, name, backend_url, filename=None, openapi_dict=None, **kwargs):
+        """Api Gateway Infrastructure with an existing openapi spec.
+        Requires either a filename or openapi_dict"""
+        if not filename and not openapi_dict:
+            raise ValueError(
+                "Either a filename or the openapi_dict needs to be provided"
+            )
+        if filename and openapi_dict:
+            raise ValueError(
+                "Only one of either a filename or the openapi_dict needs to be provided"
+            )
+        if filename:
+            with open(filename) as f:
+                openapi_dict = yaml.safe_load(f.read())
+        return self._register_infrastructure(
+            handler_type="apigateway",
+            kwargs={
+                "name": name,
+                "kwargs": {
+                    "backend_url": backend_url,
+                    "openapi_dict": openapi_dict,
+                    **kwargs,
+                },
+            },
         )
 
     def alert(self, name, conditions, **kwargs):
         """Alert Resource"""
+        kwargs["conditions"] = conditions
         return self._register_infrastructure(
-            handler_type="alert",
-            kwargs={"name": name, "conditions": conditions, "kwargs": kwargs},
+            handler_type="alerts",
+            kwargs={"name": name, "kwargs": kwargs},
+        )
+
+    def cloudtaskqueue(self, name, config=None, **kwargs):
+        """CloudTask Queue Infrastructure"""
+        kwargs["config"] = config
+        return self._register_infrastructure(
+            handler_type="cloudtaskqueue",
+            kwargs={"name": name, "config": config, "kwargs": kwargs},
+        )
+
+    def pubsub_topic(self, name, config=None, **kwargs):
+        """PubSub Topic Infrastructure"""
+        kwargs["config"] = config
+        return self._register_infrastructure(
+            handler_type="pubsub_topic",
+            kwargs={"name": name, "config": config, "kwargs": kwargs},
         )
 
     def redis(self, name, **kwargs):
@@ -194,295 +346,44 @@ class DecoratorAPI:
             kwargs={"name": name, "kwargs": kwargs},
         )
 
+    def errorhandler(self, error):
+        def _register_error_handler(error_handler):
+            self.error_handlers[error] = error_handler
+            return error_handler
+
+        return _register_error_handler
+
+    def stage(self, stage=None, stages=[]):
+        if not stage and not stages:
+            raise ValueError("One of stage or stages should be set")
+
+        # Only registers if stage matches.
+        def _register_stage(func):
+            if os.getenv("STAGE") == stage or os.getenv("STAGE") in stages:
+                return func
+
+        return _register_stage
+
     def _create_registration_function(self, handler_type, registration_kwargs=None):
         def _register_handler(user_handler):
-            handler_name = user_handler.__name__
-            kwargs = registration_kwargs or {}
-            self._register_handler(handler_type, handler_name, user_handler, kwargs)
+            if user_handler:
+                handler_name = user_handler.__name__
+                kwargs = registration_kwargs or {}
+                self._register_handler(handler_type, handler_name, user_handler, kwargs)
             return user_handler
 
         return _register_handler
 
     def _register_handler(self, handler_type, name, func, kwargs, options=None):
-        raise NotImplementedError("_register_handler")
-
-    def _register_infrastructure(self, handler_type, kwargs):
-        raise NotImplementedError("_register_infrastructure")
-
-    def register_middleware(self, func, event_type="all", before_or_after="before"):
-        raise NotImplementedError("register_middleware")
-
-
-class Register_Handlers(DecoratorAPI):
-    """Core Goblet logic. App entrypoint is the __call__ function which routes the request to the corresonding handler class"""
-
-    def __init__(
-        self,
-        function_name,
-        backend,
-        cors=None,
-        client_versions=None,
-        routes_type="apigateway",
-        config={},
-    ):
-        self.client_versions = client_versions
-
-        versioned_clients = VersionedClients(client_versions or {})
-
-        self.handlers = {
-            "route": ApiGateway(
-                function_name,
-                cors=cors,
-                backend=backend,
-                versioned_clients=versioned_clients,
-                routes_type=routes_type,
-            ),
-            "pubsub": PubSub(
-                function_name, backend=backend, versioned_clients=versioned_clients
-            ),
-            "storage": Storage(
-                function_name, backend=backend, versioned_clients=versioned_clients
-            ),
-            "eventarc": EventArc(
-                function_name, backend=backend, versioned_clients=versioned_clients
-            ),
-            "http": HTTP(
-                function_name, backend=backend, versioned_clients=versioned_clients
-            ),
-            "jobs": Jobs(
-                function_name, backend=backend, versioned_clients=versioned_clients
-            ),
-            "schedule": Scheduler(
-                function_name, backend=backend, versioned_clients=versioned_clients
-            ),
-        }
-
-        self.infrastructure = {
-            "redis": Redis(
-                function_name, backend=backend, versioned_clients=versioned_clients
-            ),
-            "vpcconnector": VPCConnector(
-                function_name,
-                backend=backend,
-                versioned_clients=versioned_clients,
-                config=config,
-            ),
-            "alerts": Alerts(
-                function_name, backend=backend, versioned_clients=versioned_clients
-            ),
-        }
-
-        self.middleware_handlers = {
-            "before": {},
-            "after": {},
-        }
-        self.current_request = None
-
-    def __call__(self, request, context=None):
-        """Goblet entrypoint"""
-        self.current_request = request
-        self.request_context = context
-        event_type = self.get_event_type(request, context)
-        # call before request middleware
-        request = self._call_middleware(request, event_type, before_or_after="before")
-        response = None
-        if event_type not in EVENT_TYPES:
-            raise ValueError(f"{event_type} not a valid event type")
-        if event_type == "job":
-            response = self.handlers["jobs"](request, context)
-        if event_type == "schedule":
-            response = self.handlers["schedule"](request)
-        if event_type == "pubsub":
-            response = self.handlers["pubsub"](request, context)
-        if event_type == "storage":
-            # Storage trigger can be made with @eventarc decorator
-            try:
-                response = self.handlers["storage"](request, context)
-            except ValueError:
-                event_type = "eventarc"
-        if event_type == "route":
-            response = self.handlers["route"](request)
-        if event_type == "http":
-            response = self.handlers["http"](request)
-        if event_type == "eventarc":
-            response = self.handlers["eventarc"](request)
-
-        # call after request middleware
-        response = self._call_middleware(response, event_type, before_or_after="after")
-        return response
-
-    def __add__(self, other):
-        for handler in self.handlers:
-            self.handlers[handler] += other.handlers[handler]
-        return self
-
-    def combine(self, other):
-        return self + other
-
-    def get_event_type(self, request, context=None):
-        """Parse event type from the event request and context"""
-        if os.environ.get("CLOUD_RUN_TASK_INDEX"):
-            return "job"
-        if context and context.event_type:
-            return context.event_type.split(".")[1].split("/")[0]
-        if request.headers.get("X-Goblet-Type") == "schedule":
-            return "schedule"
-        if request.headers.get("Ce-Type") and request.headers.get("Ce-Source"):
-            return "eventarc"
-        if (
-            request.is_json
-            and request.get_json(silent=True)
-            and request.json.get("subscription")
-            and request.json.get("message")
-        ):
-            return "pubsub"
-        if (
-            request.path
-            and request.path == "/"
-            and not request.headers.get("X-Envoy-Original-Path")
-        ):
-            return "http"
-        if request.path:
-            return "route"
-        return None
-
-    def _call_middleware(self, event, event_type, before_or_after="before"):
-        middleware = self.middleware_handlers[before_or_after].get("all", [])
-        middleware.extend(self.middleware_handlers[before_or_after].get(event_type, []))
-        for m in middleware:
-            event = m(event)
-
-        return event
-
-    def _register_handler(self, handler_type, name, func, kwargs, options=None):
-
-        getattr(self, "_register_%s" % handler_type)(
-            name=name,
-            func=func,
-            kwargs=kwargs,
-        )
+        name = kwargs.get("kwargs", {}).get("name") or name
+        self.handlers[handler_type].register(name=name, func=func, kwargs=kwargs)
 
     def _register_infrastructure(self, handler_type, kwargs, options=None):
-        getattr(self, "_register_%s" % handler_type)(kwargs=kwargs)
-
-    def get_infrastructure_config(self):
-        configs = []
-        for _, v in self.infrastructure.items():
-            config = v.get_config()
-            if config:
-                configs.append(config)
-        return configs
-
-    def deploy_handlers(self, source, config={}):
-        """Call each handlers deploy method"""
-        for k, v in self.handlers.items():
-            log.info(f"deploying {k}")
-            v.deploy(source, entrypoint="goblet_entrypoint", config=config)
-
-    def deploy_infrastructure(self, config={}):
-        """Call deploy for each infrastructure"""
-        for k, v in self.infrastructure.items():
-            log.info(f"deploying {k}")
-            v.deploy(config=config)
-
-    def sync(self, dryrun=False):
-        """Call each handlers sync method"""
-        # Sync Infrastructure
-        for _, v in self.infrastructure.items():
-            try:
-                v.sync(dryrun)
-            except HttpError as e:
-                if e.resp.status == 403:
-                    continue
-                raise e
-
-        # Sync Handlers
-        for _, v in self.handlers.items():
-            try:
-                v.sync(dryrun)
-            except HttpError as e:
-                if e.resp.status == 403:
-                    continue
-                raise e
-
-    def is_http(self):
-        """Is http determines if additional cloudfunctions will be needed since triggers other than http will require their own
-        function"""
-        # TODO: move to handlers
-        if (
-            len(self.handlers["route"].resources) > 0
-            or len(self.handlers["schedule"].resources) > 0
-            or self.handlers["http"].resources
-            or self.handlers["pubsub"].is_http()
-        ):
-            return True
-        return False
-
-    def get_backend_and_check_versions(self, backend: str, client_versions: dict):
-        try:
-            backend_class = SUPPORTED_BACKENDS[backend]
-        except KeyError:
-            raise KeyError(f"Backend {backend} not in supported backends")
-
-        version_key = (
-            "cloudfunctions" if backend.startswith("cloudfunction") else backend
+        return self.infrastructure[handler_type].register(
+            kwargs["name"], kwargs=kwargs.get("kwargs", {})
         )
-        specified_version = client_versions.get(version_key)
-        if specified_version:
-            if specified_version not in backend_class.supported_versions:
-                raise ValueError(
-                    f"{version_key} version {self.client_versions[version_key]} "
-                    f"not supported. Valid version(s): {', '.join(backend_class.supported_versions)}."
-                )
-        else:
-            # if not set, set to last in list of supported versions (most recent)
-            self.client_versions[version_key] = backend_class.supported_versions[-1]
-
-        return backend_class
 
     def register_middleware(self, func, event_type="all", before_or_after="before"):
         middleware_list = self.middleware_handlers[before_or_after].get(event_type, [])
-        if func not in middleware_list:
-            middleware_list.append(func)
+        middleware_list.append(func)
         self.middleware_handlers[before_or_after][event_type] = middleware_list
-
-    def _register_http(self, name, func, kwargs):
-        self.handlers["http"].register_http(func, kwargs=kwargs)
-
-    def _register_route(self, name, func, kwargs):
-        self.handlers["route"].register_route(name=name, func=func, kwargs=kwargs)
-
-    def _register_schedule(self, name, func, kwargs):
-        name = kwargs.get("kwargs", {}).get("name") or name
-        self.handlers["schedule"].register_job(name=name, func=func, kwargs=kwargs)
-
-    def _register_pubsub(self, name, func, kwargs):
-        self.handlers["pubsub"].register_topic(name=name, func=func, kwargs=kwargs)
-
-    def _register_storage(self, name, func, kwargs):
-        name = kwargs.get("name") or kwargs["bucket"]
-        self.handlers["storage"].register_bucket(name=name, func=func, kwargs=kwargs)
-
-    def _register_eventarc(self, name, func, kwargs):
-        name = kwargs.get("kwargs", {}).get("name") or name
-        self.handlers["eventarc"].register_trigger(name=name, func=func, kwargs=kwargs)
-
-    def _register_job(self, name, func, kwargs):
-        self.handlers["jobs"].register_job(
-            name=kwargs["name"], func=func, kwargs=kwargs
-        )
-
-    def _register_alert(self, kwargs):
-        self.infrastructure["alerts"].register_alert(
-            kwargs["name"], kwargs["conditions"], kwargs=kwargs.get("kwargs", {})
-        )
-
-    def _register_redis(self, kwargs):
-        self.infrastructure["redis"].register_instance(
-            kwargs["name"], kwargs=kwargs.get("kwargs", {})
-        )
-
-    def _register_vpcconnector(self, kwargs):
-        self.infrastructure["vpcconnector"].register_connector(
-            kwargs["name"], kwargs=kwargs.get("kwargs", {})
-        )
