@@ -7,6 +7,7 @@ ruamel.yaml==0.17.21
 markupsafe==2.0.1
 google-cloud-logging==3.1.2
 google-api-python-client==2.55.0
+goblet-gcp-client==0.1.2
 protobuf==3.20.3
 opentelemetry-api==1.14.0
 opentelemetry-instrumentation==0.35b0
