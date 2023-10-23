@@ -19,6 +19,7 @@ Usage
         return "Hello!"
 """
 
+from curses.ascii import SP
 from typing import Collection
 from goblet import Goblet
 
@@ -30,6 +31,8 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.propagators.cloud_trace_propagator import CloudTraceFormatPropagator
+from opentelemetry.trace.span import SpanContext, Span
+from opentelemetry.trace import Link
 
 tracer_provider = TracerProvider()
 cloud_trace_exporter = CloudTraceSpanExporter()
@@ -38,6 +41,10 @@ trace.set_tracer_provider(tracer_provider)
 prop = CloudTraceFormatPropagator()
 carrier = {}
 
+import logging
+
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
 
 set_global_textmap(CloudTraceFormatPropagator())
 
@@ -51,7 +58,39 @@ class GobletInstrumentor(BaseInstrumentor):
 
     @staticmethod
     def _before_request(request):
-        trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
+        """
+        X-Cloud-Trace-Context: TRACE_ID/SPAN_ID;o=TRACE_TRUE
+        """
+
+        trace_context_header = request.headers["X-Cloud-Trace-Context"]
+
+        if trace_context_header:
+            log.info(trace_context_header)
+            log.info(type(trace_context_header))
+
+            info = trace_context_header.split(";")[0].split("/")
+
+            trace_id = info[0]
+            span_id = info[1]
+
+            log.info(f"{trace_id}/{span_id}")
+            print(f"{trace_id}/{span_id}")
+            # incoming_request_context = request.headers.get("x-cloud-trace-context")
+            trace.get_tracer(__name__).start_as_current_span(
+                request.path,
+                links=[
+                    Link(
+                        SpanContext(
+                            trace_id=int(trace_id, 16),
+                            span_id=int(span_id),
+                            is_remote=True,
+                        )
+                    )
+                ],
+            ).__enter__()
+
+        else:
+            trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
         prop.inject(carrier=carrier)
         return request
 
