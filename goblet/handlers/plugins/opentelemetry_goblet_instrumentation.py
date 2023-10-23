@@ -23,12 +23,13 @@ from typing import Collection
 from goblet import Goblet
 
 
-from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
 from opentelemetry import trace
+from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+from opentelemetry.trace import Link
 
 tracer_provider = TracerProvider()
 cloud_trace_exporter = CloudTraceSpanExporter()
@@ -47,7 +48,9 @@ class GobletInstrumentor(BaseInstrumentor):
 
     @staticmethod
     def _before_request(request):
-        trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
+        trace.get_tracer(__name__).start_as_current_span(
+            request.path, links=[Link(request.headers.get("X-Cloud-Trace-Context"))]
+        ).__enter__()
         prop.inject(carrier=carrier)
         return request
 
