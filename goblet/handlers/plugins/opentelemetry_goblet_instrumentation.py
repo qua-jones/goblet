@@ -22,8 +22,9 @@ Usage
 from typing import Collection
 from goblet import Goblet
 
-from opentelemetry.trace import set_tracer_provider, get_current_span, get_tracer
+
 from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
@@ -32,7 +33,7 @@ from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapProp
 tracer_provider = TracerProvider()
 cloud_trace_exporter = CloudTraceSpanExporter()
 tracer_provider.add_span_processor(BatchSpanProcessor(cloud_trace_exporter))
-set_tracer_provider(tracer_provider)
+trace.set_tracer_provider(tracer_provider)
 prop = TraceContextTextMapPropagator()
 carrier = {}
 
@@ -46,18 +47,18 @@ class GobletInstrumentor(BaseInstrumentor):
 
     @staticmethod
     def _before_request(request):
-        get_tracer(__name__).start_as_current_span(request.path).__enter__()
+        trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
         prop.inject(carrier=carrier)
         return request
 
     @staticmethod
     def _after_request(response):
-        get_current_span().end()
+        trace.get_current_span().end()
         return response
 
     def _instrument(self, app: Goblet):
         """Instrument the library"""
-        app.g.tracer = get_tracer(__name__)
+        app.g.tracer = trace.get_tracer(__name__)
         app.g.prop = prop
         app.g.carrier = carrier
         app.before_request()(self._before_request)
