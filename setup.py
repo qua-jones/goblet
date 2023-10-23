@@ -33,6 +33,10 @@ REQUIRED = [
     "google-cloud-appengine-logging",
     "goblet-gcp-client",
     "protobuf==4.24.*",
+    "opentelemetry-api",
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-gcp-trace",
+    "opentelemetry-instrumentation",
 ]
 
 here = os.path.abspath(os.path.dirname(__file__))
