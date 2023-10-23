@@ -37,6 +37,7 @@ REQUIRED = [
     "opentelemetry-sdk",
     "opentelemetry-exporter-gcp-trace",
     "opentelemetry-instrumentation",
+    "opentelemetry-propagator-gcp",
 ]
 
 here = os.path.abspath(os.path.dirname(__file__))
