@@ -28,15 +28,18 @@ from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from opentelemetry.trace import Link
+from opentelemetry.propagate import set_global_textmap
+from opentelemetry.propagators.cloud_trace_propagator import CloudTraceFormatPropagator
 
 tracer_provider = TracerProvider()
 cloud_trace_exporter = CloudTraceSpanExporter()
 tracer_provider.add_span_processor(BatchSpanProcessor(cloud_trace_exporter))
 trace.set_tracer_provider(tracer_provider)
-prop = TraceContextTextMapPropagator()
+prop = CloudTraceFormatPropagator()
 carrier = {}
+
+
+set_global_textmap(CloudTraceFormatPropagator())
 
 
 class GobletInstrumentor(BaseInstrumentor):
@@ -48,9 +51,7 @@ class GobletInstrumentor(BaseInstrumentor):
 
     @staticmethod
     def _before_request(request):
-        trace.get_tracer(__name__).start_as_current_span(
-            request.path, links=[Link(request.headers.get("X-Cloud-Trace-Context"))]
-        ).__enter__()
+        trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
         prop.inject(carrier=carrier)
         return request
 
