@@ -62,35 +62,38 @@ class GobletInstrumentor(BaseInstrumentor):
         X-Cloud-Trace-Context: TRACE_ID/SPAN_ID;o=TRACE_TRUE
         """
 
+        log.info(request.headers)
+
         trace_context_header = request.headers["X-Cloud-Trace-Context"]
 
-        if trace_context_header:
-            log.info(trace_context_header)
-            log.info(type(trace_context_header))
+        # if trace_context_header:
+        # log.info(trace_context_header)
+        # log.info(type(trace_context_header))
 
-            info = trace_context_header.split(";")[0].split("/")
+        # info = trace_context_header.split(";")[0].split("/")
 
-            trace_id = info[0]
-            span_id = info[1]
+        # trace_id = info[0]
+        # span_id = info[1]
 
-            log.info(f"{trace_id}/{span_id}")
-            print(f"{trace_id}/{span_id}")
-            # incoming_request_context = request.headers.get("x-cloud-trace-context")
-            trace.get_tracer(__name__).start_as_current_span(
-                request.path,
-                links=[
-                    Link(
-                        SpanContext(
-                            trace_id=int(trace_id, 16),
-                            span_id=int(span_id),
-                            is_remote=True,
-                        )
-                    )
-                ],
-            ).__enter__()
+        trace.get_current_span().__enter__()
+        # log.info(f"{trace_id}/{span_id}")
+        # print(f"{trace_id}/{span_id}")
+        # # incoming_request_context = request.headers.get("x-cloud-trace-context")
+        # trace.get_tracer(__name__).start_as_current_span(
+        #     request.path,
+        #     links=[
+        #         Link(
+        #             SpanContext(
+        #                 trace_id=int(trace_id, 16),
+        #                 span_id=int(span_id),
+        #                 is_remote=True,
+        #             )
+        #         )
+        #     ],
+        # ).__enter__()
 
-        else:
-            trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
+        # else:
+        #     trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
         prop.inject(carrier=carrier)
         return request
 
