@@ -34,6 +34,9 @@ from opentelemetry.propagators.cloud_trace_propagator import CloudTraceFormatPro
 from opentelemetry.trace.span import SpanContext, Span
 from opentelemetry.trace import Link
 
+import logging
+
+
 tracer_provider = TracerProvider()
 cloud_trace_exporter = CloudTraceSpanExporter()
 tracer_provider.add_span_processor(BatchSpanProcessor(cloud_trace_exporter))
@@ -41,7 +44,6 @@ trace.set_tracer_provider(tracer_provider)
 prop = CloudTraceFormatPropagator()
 carrier = {}
 
-import logging
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
@@ -63,8 +65,8 @@ class GobletInstrumentor(BaseInstrumentor):
         """
 
         log.info(request.headers)
-
-        trace_context_header = request.headers["X-Cloud-Trace-Context"]
+        log.info(request.headers["Traceparent"])
+        # trace_context_header = request.headers["X-Cloud-Trace-Context"]
 
         # if trace_context_header:
         # log.info(trace_context_header)
