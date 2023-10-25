@@ -19,9 +19,9 @@ Usage
         return "Hello!"
 """
 
-from curses.ascii import SP
 from typing import Collection
-from goblet import Goblet
+
+from goblet import Goblet, Response
 
 
 from opentelemetry import trace
@@ -66,7 +66,7 @@ class GobletInstrumentor(BaseInstrumentor):
 
         log.info(request.headers)
         log.info(request.headers.get("Traceparent"))
-        trace_context_header = request.headers["X-Cloud-Trace-Context"]
+        trace_context_header = request.headers.get("X-Cloud-Trace-Context")
 
         if trace_context_header:
             log.info(trace_context_header)
@@ -98,16 +98,18 @@ class GobletInstrumentor(BaseInstrumentor):
         return request
 
     @staticmethod
-    def _after_request(response: dict):
+    def _after_request(response):
+        if not isinstance(response, Response):
+            response = Response(response)
+
         current_span = trace.get_current_span()
         current_span_context = current_span.get_span_context()
         log.info(response)
-        log.info(response.get("headers"))
+        log.info(response.headers)
         trace_context = (
             f"{current_span_context.trace_id}/{current_span_context.span_id};o=1"
         )
-        response["headers"]["X-Cloud-Trace-Context"] = trace_context
-        log.info(response.get("headers"))
+        response.headers["X-Cloud-Trace-Context"] = trace_context
         return response
 
     def _instrument(self, app: Goblet):
