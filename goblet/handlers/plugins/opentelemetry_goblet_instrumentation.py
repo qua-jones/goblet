@@ -110,9 +110,12 @@ class GobletInstrumentor(BaseInstrumentor):
 
         log.info(response)
         log.info(response.headers)
+        log.info(current_span)
+        log.info(current_span_context)
         trace_context = (
-            f"{current_span_context.trace_id}/{current_span_context.span_id};o=1"
+            f"{current_span_context.trace_id}"  # /{current_span_context.span_id};o=1"
         )
+
         response.headers["X-Cloud-Trace-Context"] = trace_context
         log.info(response.headers)
         return response
