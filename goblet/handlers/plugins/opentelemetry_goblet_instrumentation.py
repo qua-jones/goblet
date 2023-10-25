@@ -65,34 +65,32 @@ class GobletInstrumentor(BaseInstrumentor):
         """
 
         log.info(request.headers)
-        log.info(request.headers["Traceparent"])
-        # trace_context_header = request.headers["X-Cloud-Trace-Context"]
+        log.info(request.headers.get("Traceparent"))
+        trace_context_header = request.headers["X-Cloud-Trace-Context"]
 
-        # if trace_context_header:
-        # log.info(trace_context_header)
-        # log.info(type(trace_context_header))
+        if trace_context_header:
+            log.info(trace_context_header)
+            log.info(type(trace_context_header))
 
-        # info = trace_context_header.split(";")[0].split("/")
+            info = trace_context_header.split(";")[0].split("/")
 
-        # trace_id = info[0]
-        # span_id = info[1]
+            trace_id = info[0]
+            span_id = info[1]
 
-        trace.get_current_span().__enter__()
-        # log.info(f"{trace_id}/{span_id}")
-        # print(f"{trace_id}/{span_id}")
-        # # incoming_request_context = request.headers.get("x-cloud-trace-context")
-        # trace.get_tracer(__name__).start_as_current_span(
-        #     request.path,
-        #     links=[
-        #         Link(
-        #             SpanContext(
-        #                 trace_id=int(trace_id, 16),
-        #                 span_id=int(span_id),
-        #                 is_remote=True,
-        #             )
-        #         )
-        #     ],
-        # ).__enter__()
+        # trace.get_current_span().__enter__().
+        log.info(f"{trace_id}/{span_id}")
+        trace.get_tracer(__name__).start_as_current_span(
+            request.path,
+            links=[
+                Link(
+                    SpanContext(
+                        trace_id=int(trace_id, 16),
+                        span_id=int(span_id),
+                        is_remote=True,
+                    )
+                )
+            ],
+        ).__enter__()
 
         # else:
         #     trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
@@ -101,7 +99,13 @@ class GobletInstrumentor(BaseInstrumentor):
 
     @staticmethod
     def _after_request(response):
-        trace.get_current_span().end()
+        current_span = trace.get_current_span()
+        current_span_context = current_span.get_span_context()
+        log.info(response.headers)
+        trace_context = (
+            f"{current_span_context.trace_id}/{current_span_context.span_id};o=1"
+        )
+        response.headers["X-Cloud-Trace-Context"] = trace_context
         return response
 
     def _instrument(self, app: Goblet):
