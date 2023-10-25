@@ -37,18 +37,21 @@ from opentelemetry.trace import Link
 import logging
 
 
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+
 tracer_provider = TracerProvider()
 cloud_trace_exporter = CloudTraceSpanExporter()
 tracer_provider.add_span_processor(BatchSpanProcessor(cloud_trace_exporter))
-trace.set_tracer_provider(tracer_provider)
+
 prop = CloudTraceFormatPropagator()
 carrier = {}
 
 
-log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
+trace.set_tracer_provider(tracer_provider)
 
-set_global_textmap(CloudTraceFormatPropagator())
+
+set_global_textmap(prop)
 
 
 class GobletInstrumentor(BaseInstrumentor):
@@ -77,7 +80,6 @@ class GobletInstrumentor(BaseInstrumentor):
             trace_id = info[0]
             span_id = info[1]
 
-        # trace.get_current_span().__enter__().
         log.info(f"{trace_id}/{span_id}")
         trace.get_tracer(__name__).start_as_current_span(
             request.path,
