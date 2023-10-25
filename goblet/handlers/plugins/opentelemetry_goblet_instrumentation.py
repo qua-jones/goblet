@@ -99,11 +99,15 @@ class GobletInstrumentor(BaseInstrumentor):
 
     @staticmethod
     def _after_request(response):
-        if not isinstance(response, Response):
-            response = Response(response)
+        log.info(response)
+        log.info(type(response))
 
         current_span = trace.get_current_span()
         current_span_context = current_span.get_span_context()
+
+        if not isinstance(response, Response):
+            response = Response(response)
+
         log.info(response)
         log.info(response.headers)
         trace_context = (
