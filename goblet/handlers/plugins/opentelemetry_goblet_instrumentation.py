@@ -98,15 +98,16 @@ class GobletInstrumentor(BaseInstrumentor):
         return request
 
     @staticmethod
-    def _after_request(response):
+    def _after_request(response: dict):
         current_span = trace.get_current_span()
         current_span_context = current_span.get_span_context()
-        log.info(response.headers)
+        log.info(response)
+        log.info(response.get("headers"))
         trace_context = (
             f"{current_span_context.trace_id}/{current_span_context.span_id};o=1"
         )
-        response.headers["X-Cloud-Trace-Context"] = trace_context
-        log.info(response.headers)
+        response["headers"]["X-Cloud-Trace-Context"] = trace_context
+        log.info(response.get("headers"))
         return response
 
     def _instrument(self, app: Goblet):
