@@ -117,7 +117,7 @@ class GobletInstrumentor(BaseInstrumentor):
         current_span = trace.get_current_span()
         current_span_context = current_span.get_span_context()
 
-        prop_context = prop.extract(carrier=carrier, context=current_span_context)
+        prop_context = prop.extract(carrier=carrier)
 
         log.info(f"response span: {current_span}")
         log.info(f"response span context: {current_span_context}")
