@@ -110,19 +110,21 @@ class GobletInstrumentor(BaseInstrumentor):
     def _after_request(response):
         if not isinstance(response, Response):
             response = Response(response)
+
         log.info(response)
         log.info(response.headers)
 
         current_span = trace.get_current_span()
         current_span_context = current_span.get_span_context()
 
-        prop_context = prop.extract(carrier=carrier)
-        log.info(f"response prop context: {prop_context}")
+        prop_context = prop.extract(carrier=carrier, context=current_span_context)
+
         log.info(f"response span: {current_span}")
         log.info(f"response span context: {current_span_context}")
+        log.info(f"response prop context: {prop_context}")
 
         trace_context = (
-            f"{current_span_context.trace_id}"  # /{current_span_context.span_id};o=1"
+            f"{current_span_context.trace_id}/{current_span_context.span_id};o=1"
         )
 
         response.headers["X-Cloud-Trace-Context"] = trace_context
