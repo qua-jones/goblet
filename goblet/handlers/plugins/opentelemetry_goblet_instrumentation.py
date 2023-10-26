@@ -98,15 +98,11 @@ class GobletInstrumentor(BaseInstrumentor):
             .__enter__()
         )
 
-        prop_context = prop.extract(carrier=carrier)
-        log.info(current_span)
+        log.info(f"before request span: {current_span}")
 
         # else:
         #     trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
-        prop.inject(
-            carrier=carrier,
-            context=set_span_in_context(current_span, prop_context),
-        )
+        prop.inject(carrier=carrier, context=set_span_in_context(current_span))
 
         return request
 
@@ -120,6 +116,8 @@ class GobletInstrumentor(BaseInstrumentor):
         current_span = trace.get_current_span()
         current_span_context = current_span.get_span_context()
 
+        prop_context = prop.extract(carrier=carrier)
+        log.info(f"response prop context: {prop_context}")
         log.info(f"response span: {current_span}")
         log.info(f"response span context: {current_span_context}")
 
