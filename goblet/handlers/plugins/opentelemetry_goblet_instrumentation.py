@@ -103,7 +103,9 @@ class GobletInstrumentor(BaseInstrumentor):
         #     trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
         prop.inject(
             carrier=carrier,
-            context=set_span_in_context(current_span, current_span.get_span_context()),
+            context=set_span_in_context(
+                current_span
+            ),  # current_span.get_span_context()),
         )
 
         return request
