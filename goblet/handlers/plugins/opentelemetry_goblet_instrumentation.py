@@ -34,7 +34,6 @@ from opentelemetry.propagators.cloud_trace_propagator import CloudTraceFormatPro
 from opentelemetry.trace.span import SpanContext
 from opentelemetry.trace import Link, set_span_in_context, context_api
 
-
 import logging
 
 
@@ -82,6 +81,8 @@ class GobletInstrumentor(BaseInstrumentor):
             current_context = context_api.get_current()
             log.info(f"before_request current context: {current_context}")
             log.info(f"{trace_id}/{span_id}")
+            log.info(trace.get_current_span())
+            log.info(trace.get_current_span().get_span_context())
             current_span = (
                 trace.get_tracer(__name__)
                 .start_as_current_span(
@@ -121,12 +122,12 @@ class GobletInstrumentor(BaseInstrumentor):
         current_span_context = current_span.get_span_context()
 
         prop_context = prop.extract(carrier=carrier)
-        prop._get_header_value()
+        current_context = context_api.get_current()
 
         log.info(f"response span: {current_span}")
         log.info(f"response span context: {current_span_context}")
         log.info(f"response prop context: {prop_context}")
-
+        log.info(f"response current context: {current_context}")
         trace_context = (
             f"{current_span_context.trace_id}/{current_span_context.span_id};o=1"
         )
