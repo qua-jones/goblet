@@ -97,34 +97,32 @@ class GobletInstrumentor(BaseInstrumentor):
             )
             .__enter__()
         )
+
+        prop_context = prop.extract(carrier=carrier)
         log.info(current_span)
 
         # else:
         #     trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
         prop.inject(
             carrier=carrier,
-            context=set_span_in_context(
-                current_span
-            ),  # current_span.get_span_context()),
+            context=set_span_in_context(current_span, prop_context),
         )
 
         return request
 
     @staticmethod
     def _after_request(response):
+        if not isinstance(response, Response):
+            response = Response(response)
         log.info(response)
-        log.info(type(response))
+        log.info(response.headers)
 
         current_span = trace.get_current_span()
         current_span_context = current_span.get_span_context()
 
-        if not isinstance(response, Response):
-            response = Response(response)
+        log.info(f"response span: {current_span}")
+        log.info(f"response span context: {current_span_context}")
 
-        log.info(response)
-        log.info(response.headers)
-        log.info(current_span)
-        log.info(current_span_context)
         trace_context = (
             f"{current_span_context.trace_id}"  # /{current_span_context.span_id};o=1"
         )
