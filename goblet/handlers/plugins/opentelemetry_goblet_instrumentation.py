@@ -31,8 +31,8 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.propagators.cloud_trace_propagator import CloudTraceFormatPropagator
-from opentelemetry.trace.span import SpanContext, Span
-from opentelemetry.trace import Link
+from opentelemetry.trace.span import SpanContext
+from opentelemetry.trace import Link, set_span_in_context
 
 import logging
 
@@ -81,22 +81,31 @@ class GobletInstrumentor(BaseInstrumentor):
             span_id = info[1]
 
         log.info(f"{trace_id}/{span_id}")
-        trace.get_tracer(__name__).start_as_current_span(
-            request.path,
-            links=[
-                Link(
-                    SpanContext(
-                        trace_id=int(trace_id, 16),
-                        span_id=int(span_id),
-                        is_remote=True,
+        current_span = (
+            trace.get_tracer(__name__)
+            .start_as_current_span(
+                request.path,
+                links=[
+                    Link(
+                        SpanContext(
+                            trace_id=int(trace_id, 16),
+                            span_id=int(span_id),
+                            is_remote=True,
+                        )
                     )
-                )
-            ],
-        ).__enter__()
+                ],
+            )
+            .__enter__()
+        )
+        log.info(current_span)
 
         # else:
         #     trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
-        prop.inject(carrier=carrier)
+        prop.inject(
+            carrier=carrier,
+            context=set_span_in_context(current_span, current_span.get_span_context()),
+        )
+
         return request
 
     @staticmethod
