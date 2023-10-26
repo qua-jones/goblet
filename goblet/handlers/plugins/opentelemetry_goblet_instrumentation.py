@@ -32,7 +32,8 @@ from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.propagators.cloud_trace_propagator import CloudTraceFormatPropagator
 from opentelemetry.trace.span import SpanContext
-from opentelemetry.trace import Link, set_span_in_context
+from opentelemetry.trace import Link, set_span_in_context, context_api
+
 
 import logging
 
@@ -66,43 +67,45 @@ class GobletInstrumentor(BaseInstrumentor):
         """
         X-Cloud-Trace-Context: TRACE_ID/SPAN_ID;o=TRACE_TRUE
         """
-
-        log.info(request.headers)
-        log.info(request.headers.get("Traceparent"))
+        trace_parent = request.headers.get("Traceparent")
         trace_context_header = request.headers.get("X-Cloud-Trace-Context")
 
         if trace_context_header:
-            log.info(trace_context_header)
-            log.info(type(trace_context_header))
+            log.info(f"before_request X-Cloud-Trace-Context: {trace_context_header}")
+            log.info(f"before_request Traceparent {trace_parent}")
 
             info = trace_context_header.split(";")[0].split("/")
 
             trace_id = info[0]
             span_id = info[1]
 
-        log.info(f"{trace_id}/{span_id}")
-        current_span = (
-            trace.get_tracer(__name__)
-            .start_as_current_span(
-                request.path,
-                links=[
-                    Link(
-                        SpanContext(
-                            trace_id=int(trace_id, 16),
-                            span_id=int(span_id),
-                            is_remote=True,
+            current_context = context_api.get_current()
+            log.info(f"before_request current context: {current_context}")
+            log.info(f"{trace_id}/{span_id}")
+            current_span = (
+                trace.get_tracer(__name__)
+                .start_as_current_span(
+                    request.path,
+                    links=[
+                        Link(
+                            SpanContext(
+                                trace_id=int(trace_id, 16),
+                                span_id=int(span_id),
+                                is_remote=True,
+                            )
                         )
-                    )
-                ],
+                    ],
+                )
+                .__enter__()
             )
-            .__enter__()
+
+            log.info(f"before request span: {current_span}")
+        else:
+            trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
+
+        prop.inject(
+            carrier=carrier, context=set_span_in_context(current_span, current_context)
         )
-
-        log.info(f"before request span: {current_span}")
-
-        # else:
-        #     trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
-        prop.inject(carrier=carrier, context=set_span_in_context(current_span))
 
         return request
 
@@ -118,6 +121,7 @@ class GobletInstrumentor(BaseInstrumentor):
         current_span_context = current_span.get_span_context()
 
         prop_context = prop.extract(carrier=carrier)
+        prop._get_header_value()
 
         log.info(f"response span: {current_span}")
         log.info(f"response span context: {current_span_context}")
