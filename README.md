@@ -5,7 +5,7 @@
 ![Tests](https://github.com/goblet/goblet/actions/workflows/main.yml/badge.svg)
 [![codecov](https://codecov.io/gh/goblet/goblet/branch/main/graph/badge.svg?token=g8TL6Sc0P5)](https://codecov.io/gh/goblet/goblet)
 
-Goblet is a framework for writing serverless rest apis in python in google cloud. It allows you to quickly create and deploy python apis backed by [Cloud Functions](https://cloud.google.com/functions) and [Cloud Run](https://cloud.google.com/run)
+Goblet is a framework for writing serverless rest apis in python in google cloud. It allows you to quickly create and deploy python apis backed by [Cloud Functions](https://cloud.google.com/functions) and [Cloud Run](https://cloud.google.com/run) as well as other GCP serverless services.
 
 It provides:
 
@@ -82,6 +82,7 @@ $ curl https://api.uc.gateway.dev/home
 * api gateway
 * cloudtaskqueue
 * pubsub topics
+* bq spark stored procedures
 
 #### Backends
 * cloudfunction
@@ -99,7 +100,8 @@ $ curl https://api.uc.gateway.dev/home
 * eventarc
 * cloudrun jobs
 * bq remote functions
-* cloudtasktarget
+* cloudtask target
+* uptime checks
 
 ## Data Typing Frameworks Supported
 
@@ -300,6 +302,8 @@ INFO:goblet.deployer:deleting storage bucket......
 
 [Easily Manage IAM Policies for Serverless REST Applications in GCP with Goblet](https://engineering.premise.com/easily-manage-iam-policies-for-serverless-rest-applications-in-gcp-with-goblet-f1580a97b74)
 
+[Serverless Data Pipelines in GCP using Dataform and BigQuery Remote Functions](https://engineering.premise.com/serverless-data-pipelines-in-gcp-using-dataform-and-bigquery-remote-functions-9ee235d0cb18)
+
 ## Examples
 
 [Goblet Examples](https://github.com/goblet/goblet/blob/main/examples/main.py)
@@ -334,12 +338,13 @@ Please file any issues, bugs or feature requests as an issue on our [GitHub](htt
  &#9745; Deploy arbitrary Dockerfile to Cloudrun \
  &#9745; [Multi Container Deployments](https://cloud.google.com/blog/products/serverless/cloud-run-now-supports-multi-container-deployments) \
  &#9745; Create Deployment Service Accounts \
- &#9745; Automatically add IAM invoker bindings on the backend based on deployed handlers
+ &#9745; Automatically add IAM invoker bindings on the backend based on deployed handlers \
+ &#9745; [Uptime Checks](https://cloud.google.com/monitoring/uptime-checks)
 
 
 ## Want to Contribute
 
-If you would like to contribute to the library (e.g. by improving the documentation, solving a bug or adding a cool new feature) submit a [pull request](https://github.com/goblet/goblet/pulls).
+If you would like to contribute to the library (e.g. by improving the documentation, solving a bug or adding a cool new feature) please follow the [contribution guide](CONTRIBUTING.md) and submit a [pull request](https://github.com/goblet/goblet/pulls).
 
 ## Want to Support
 

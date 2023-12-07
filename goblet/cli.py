@@ -26,6 +26,7 @@ SUPPORTED_HANDLERS = [
     "pubsub",
     "storage",
     "schedule",
+    "uptime",
 ]
 SUPPORTED_INFRASTRUCTURES = [
     "alerts",
@@ -34,6 +35,7 @@ SUPPORTED_INFRASTRUCTURES = [
     "pubsub",
     "redis",
     "vpcconnector",
+    "bqsparkstoredprocedure",
 ]
 
 
@@ -122,7 +124,7 @@ def deploy(
         # set deploy env vars
         if goblet_config.deploy:
             for key, value in goblet_config.deploy.get(
-                "environmentVariables", []
+                "environmentVariables", {}
             ).items():
                 os.environ[key] = value
 
@@ -203,7 +205,7 @@ def destroy(
         # set deploy env vars
         if goblet_config.deploy:
             for key, value in goblet_config.deploy.get(
-                "environmentVariables", []
+                "environmentVariables", {}
             ).items():
                 os.environ[key] = value
 
