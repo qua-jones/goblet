@@ -19,23 +19,20 @@ Usage
         return "Hello!"
 """
 
+import logging
 from typing import Collection
 
-from goblet import Goblet, Response
-
-
+import flask
 from opentelemetry import trace
 from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.propagators.cloud_trace_propagator import CloudTraceFormatPropagator
-from opentelemetry.trace.span import SpanContext
-from opentelemetry.trace import Link, set_span_in_context, context_api
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-import logging
 
+from goblet import Goblet
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
@@ -72,77 +69,39 @@ class GobletInstrumentor(BaseInstrumentor):
         if trace_context_header:
             log.info(f"before_request X-Cloud-Trace-Context: {trace_context_header}")
             log.info(f"before_request Traceparent {trace_parent}")
-
+            log.info(f"flask headers {flask.request.headers}")
             info = trace_context_header.split(";")[0].split("/")
 
             trace_id = info[0]
             span_id = info[1]
 
-            current_context = context_api.get_current()
-            log.info(f"before_request current context: {current_context}")
             log.info(f"{trace_id}/{span_id}")
             log.info(trace.get_current_span())
             log.info(trace.get_current_span().get_span_context())
             current_span = (
-                trace.get_tracer(__name__)
-                .start_as_current_span(
-                    request.path,
-                    links=[
-                        Link(
-                            SpanContext(
-                                trace_id=int(trace_id, 16),
-                                span_id=int(span_id),
-                                is_remote=True,
-                            )
-                        )
-                    ],
-                )
-                .__enter__()
-            )
+                trace.get_tracer(__name__).start_span(request.path)
+                # .start_as_current_span(
+                #     request.path,
+                #     links=[
+                #         Link(
+                #             SpanContext(
+                #                 trace_id=int(trace_id, 16),
+                #                 span_id=int(span_id),
+                #                 is_remote=True,
+                #             )
+                #         )
+                #     ],
+                # )
+                # .__enter__()
+            ).__enter__()
 
             log.info(f"before request span: {current_span}")
-        else:
-            trace.get_tracer(__name__).start_as_current_span(request.path).__enter__()
-
-        prop.inject(
-            carrier=carrier, context=set_span_in_context(current_span, current_context)
-        )
-
         return request
-
-    @staticmethod
-    def _after_request(response):
-        if not isinstance(response, Response):
-            response = Response(response)
-
-        log.info(response)
-        log.info(response.headers)
-
-        current_span = trace.get_current_span()
-        current_span_context = current_span.get_span_context()
-
-        prop_context = prop.extract(carrier=carrier)
-        current_context = context_api.get_current()
-
-        log.info(f"response span: {current_span}")
-        log.info(f"response span context: {current_span_context}")
-        log.info(f"response prop context: {prop_context}")
-        log.info(f"response current context: {current_context}")
-        trace_context = (
-            f"{current_span_context.trace_id}/{current_span_context.span_id};o=1"
-        )
-
-        response.headers["X-Cloud-Trace-Context"] = trace_context
-        log.info(response.headers)
-        return response
 
     def _instrument(self, app: Goblet):
         """Instrument the library"""
-        app.g.tracer = trace.get_tracer(__name__)
-        app.g.prop = prop
-        app.g.carrier = carrier
         app.before_request()(self._before_request)
-        app.after_request()(self._after_request)
+        # app.after_request()(self._after_request)
 
     def instrument_app(self, app: Goblet):
         self.instrument(app=app)
